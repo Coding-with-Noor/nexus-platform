@@ -17,14 +17,15 @@ const REFRESH_TOKEN_STORAGE_KEY = "business_nexus_refresh_token"
 
 // Helper function to normalize user data from backend
 const normalizeUserData = (userData: any): User => {
-  // Handle Mongoose _id field by converting it to id
-  if (userData && userData._id && !userData.id) {
-    return {
-      ...userData,
-      id: userData._id.toString(),
-    }
+  if (!userData) return userData
+  const id =
+    userData.id?.toString?.() ||
+    userData._id?.toString?.() ||
+    (typeof userData._id === "string" ? userData._id : undefined)
+  return {
+    ...userData,
+    id: id || userData.id,
   }
-  return userData
 }
 
 // Auth Provider Component
@@ -77,26 +78,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializeAuth()
   }, [])
 
+  const completeLogin = async (userData: User, token: string, refreshToken: string): Promise<void> => {
+    const normalizedUser = normalizeUserData(userData)
+
+    if (!normalizedUser?.id) {
+      throw new Error("Invalid user data received from server")
+    }
+
+    setUser(normalizedUser)
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser))
+    localStorage.setItem(TOKEN_STORAGE_KEY, token)
+    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken)
+    toast.success("Successfully logged in!")
+  }
+
   const login = async (email: string, password: string, role: UserRole): Promise<void> => {
     setIsLoading(true)
 
     try {
       const response = await authService.login(email, password, role)
 
-      // Normalize user data to handle _id from backend
-      const normalizedUser = normalizeUserData(response.user)
-
-      if (!normalizedUser?.id) {
-        throw new Error("Invalid user data received from server")
+      if (response.requiresOTP) {
+        throw new Error("OTP verification required")
       }
 
-      // Store user data and tokens
-      setUser(normalizedUser)
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser))
-      localStorage.setItem(TOKEN_STORAGE_KEY, response.token)
-      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, response.refreshToken)
+      if (!response.user || !response.token || !response.refreshToken) {
+        throw new Error("Invalid login response from server")
+      }
 
-      toast.success("Successfully logged in!")
+      await completeLogin(response.user, response.token, response.refreshToken)
     } catch (error: any) {
       console.error("[v0] Login error:", error)
       const errorMessage = error.response?.data?.message || error.message || "Login failed"
@@ -175,10 +185,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const updatedUser = await authService.updateProfile(userId, updates)
-      const normalizedUser = normalizeUserData(updatedUser)
+      const result = await userService.updateUser(userId, updates)
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "Profile update failed")
+      }
+      const normalizedUser = normalizeUserData(result.data)
 
-      // Update current user if it's the same user
       if (user?.id === userId) {
         setUser(normalizedUser)
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser))
@@ -208,13 +220,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const enable2FA = async (): Promise<void> => {
+    try {
+      await authService.enable2FA()
+      if (user) {
+        const updated = { ...user, twoFactorEnabled: true }
+        setUser(updated)
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated))
+      }
+      toast.success("Two-factor authentication enabled")
+    } catch (error: any) {
+      const msg = error.response?.data?.message || error.message || "Failed to enable 2FA"
+      toast.error(msg)
+      throw new Error(msg)
+    }
+  }
+
+  const disable2FA = async (password: string): Promise<void> => {
+    try {
+      await authService.disable2FA(password)
+      if (user) {
+        const updated = { ...user, twoFactorEnabled: false }
+        setUser(updated)
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated))
+      }
+      toast.success("Two-factor authentication disabled")
+    } catch (error: any) {
+      const msg = error.response?.data?.message || error.message || "Failed to disable 2FA"
+      toast.error(msg)
+      throw new Error(msg)
+    }
+  }
 
   const uploadAvatar = async (file: File): Promise<void> => {
     if (!user?.id) throw new Error("No user")
     try {
       const res = await userService.uploadAvatar(user.id, file)
       if (res.success && res.data?.avatarUrl) {
-        const updated = { ...user, avatarUrl: res.data.avatarUrl }
+        const updated = normalizeUserData({ ...user, avatarUrl: res.data.avatarUrl })
         setUser(updated)
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated))
         toast.success("Profile photo updated")
@@ -231,6 +274,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = {
     user,
     login,
+    completeLogin,
     register,
     logout,
     forgotPassword,
@@ -240,6 +284,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     getUserId,
     changePassword,
+    enable2FA,
+    disable2FA,
     uploadAvatar,
   }
 

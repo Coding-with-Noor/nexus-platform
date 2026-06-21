@@ -14,25 +14,28 @@ import {
   XCircle,
 } from "lucide-react"
 import paymentService, { type Wallet as WalletType, type Transaction } from "../../services/paymentService"
+import userService, { type BaseUser } from "../../services/userService"
+import { useAuth } from "../../context/AuthContext"
 import toast from "react-hot-toast"
 
 export const WalletPage: React.FC = () => {
+  const { user } = useAuth()
   const [wallet, setWallet] = useState<WalletType | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [recipients, setRecipients] = useState<BaseUser[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<"overview" | "deposit" | "withdraw" | "transfer">("overview")
 
-  // Form states
   const [depositAmount, setDepositAmount] = useState("")
   const [withdrawAmount, setWithdrawAmount] = useState("")
   const [transferAmount, setTransferAmount] = useState("")
-  const [recipientId, setRecipientId] = useState("")
+  const [recipientEmail, setRecipientEmail] = useState("")
   const [transferDescription, setTransferDescription] = useState("")
   const [processing, setProcessing] = useState(false)
 
   useEffect(() => {
     loadWalletData()
-  }, [])
+  }, [user])
 
   const loadWalletData = async () => {
     try {
@@ -43,6 +46,12 @@ export const WalletPage: React.FC = () => {
       ])
       setWallet(walletData)
       setTransactions(transactionsData.transactions)
+
+      if (user) {
+        const oppositeRole = user.role === "entrepreneur" ? "investor" : "entrepreneur"
+        const users = await userService.getUsersByRole(oppositeRole, 20)
+        setRecipients(users.filter((u) => u.id !== user.id))
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to load wallet data")
     } finally {
@@ -60,8 +69,7 @@ export const WalletPage: React.FC = () => {
         throw new Error("Please enter a valid amount")
       }
 
-      const { clientSecret, transactionId } = await paymentService.createDepositIntent(amount)
-
+      const { transactionId } = await paymentService.createDepositIntent(amount)
       await paymentService.confirmDeposit(transactionId)
 
       toast.success(`Successfully deposited $${amount.toFixed(2)}`)
@@ -87,7 +95,7 @@ export const WalletPage: React.FC = () => {
 
       await paymentService.requestWithdrawal(amount)
 
-      toast.success(`Withdrawal of $${amount.toFixed(2)} requested successfully`)
+      toast.success(`Withdrawal of $${amount.toFixed(2)} completed`)
       setWithdrawAmount("")
       await loadWalletData()
       setActiveTab("overview")
@@ -107,15 +115,15 @@ export const WalletPage: React.FC = () => {
       if (isNaN(amount) || amount <= 0) {
         throw new Error("Please enter a valid amount")
       }
-      if (!recipientId.trim()) {
-        throw new Error("Please enter recipient ID")
+      if (!recipientEmail.trim()) {
+        throw new Error("Please select or enter a recipient email")
       }
 
-      await paymentService.transferFunds(recipientId, amount, transferDescription)
+      await paymentService.transferFunds(recipientEmail.trim(), amount, transferDescription)
 
-      toast.success(`Successfully transferred $${amount.toFixed(2)}`)
+      toast.success(`Successfully transferred $${amount.toFixed(2)} to ${recipientEmail}`)
       setTransferAmount("")
-      setRecipientId("")
+      setRecipientEmail("")
       setTransferDescription("")
       await loadWalletData()
       setActiveTab("overview")
@@ -163,15 +171,13 @@ export const WalletPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-8">
+    <div className="space-y-6 animate-fade-in">
+      <div>
         <h1 className="text-3xl font-bold text-gray-900">Wallet</h1>
         <p className="mt-2 text-sm text-gray-600">Manage your funds and transactions</p>
       </div>
 
-      {/* Balance Card */}
-      <div className="bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl p-8 text-white mb-8 shadow-lg">
+      <div className="bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl p-8 text-white shadow-lg">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="bg-white/20 p-3 rounded-xl">
@@ -200,10 +206,9 @@ export const WalletPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Action Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-8">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
+          <nav className="flex -mb-px overflow-x-auto">
             {[
               { id: "overview", label: "Overview", icon: TrendingUp },
               { id: "deposit", label: "Deposit", icon: ArrowDownLeft },
@@ -213,7 +218,7 @@ export const WalletPage: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? "border-primary-600 text-primary-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
@@ -271,7 +276,7 @@ export const WalletPage: React.FC = () => {
                             {transaction.type === "deposit" || transaction.type === "transfer_received" ? "+" : "-"}$
                             {transaction.amount.toFixed(2)}
                           </p>
-                          <div className="flex items-center gap-1 text-sm">
+                          <div className="flex items-center gap-1 text-sm justify-end">
                             {getStatusIcon(transaction.status)}
                             <span className="text-gray-500 capitalize">{transaction.status}</span>
                           </div>
@@ -307,9 +312,6 @@ export const WalletPage: React.FC = () => {
               >
                 {processing ? "Processing..." : "Deposit Funds"}
               </button>
-              <p className="mt-3 text-xs text-gray-500">
-                Note: Stripe integration requires STRIPE_SECRET_KEY environment variable
-              </p>
             </form>
           )}
 
@@ -342,16 +344,42 @@ export const WalletPage: React.FC = () => {
           )}
 
           {activeTab === "transfer" && (
-            <form onSubmit={handleTransfer} className="max-w-md">
+            <form onSubmit={handleTransfer} className="max-w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Transfer Funds</h3>
+
+              {recipients.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Quick Select Recipient</label>
+                  <div className="flex flex-wrap gap-2">
+                    {recipients.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setRecipientEmail(r.email || "")}
+                        className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                          recipientEmail === r.email
+                            ? "bg-primary-50 border-primary-500 text-primary-700"
+                            : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Demo: Entrepreneur → select Investor Demo, or Investor → select Entrepreneur Demo
+                  </p>
+                </div>
+              )}
+
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Recipient User ID</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Recipient Email</label>
                 <input
-                  type="text"
-                  value={recipientId}
-                  onChange={(e) => setRecipientId(e.target.value)}
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Enter user ID"
+                  placeholder="e.g. InDemo@gmail.com"
                   required
                 />
               </div>
@@ -394,4 +422,3 @@ export const WalletPage: React.FC = () => {
     </div>
   )
 }
-

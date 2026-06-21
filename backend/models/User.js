@@ -171,10 +171,14 @@ userSchema.pre("save", async function (next) {
 
 // Instance method to check password
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.password) {
+    return false
+  }
   try {
     return await bcrypt.compare(candidatePassword, this.password)
   } catch (error) {
-    throw new Error("Password comparison failed")
+    console.error("Password comparison error:", error.message)
+    return false
   }
 }
 

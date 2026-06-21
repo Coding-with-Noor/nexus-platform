@@ -6,7 +6,9 @@ const { requireRole, requireOwnership } = require("../middleware/auth")
 const { validateEntrepreneurProfile, validateInvestorProfile, validateObjectId } = require("../middleware/validation")
 const { body } = require("express-validator")
 const multer = require("multer")
-const { uploadImage } = require("../config/cloudinary")
+
+const hasCloudinary = process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_CLOUD_NAME
+const uploadImage = hasCloudinary ? require("../config/cloudinary").uploadImage : null
 
 const router = express.Router()
 
@@ -304,18 +306,24 @@ router.post(
       }
 
       const { name, type, isPublic = false } = req.body
+      let fileUrl = ""
 
-      // Upload to Cloudinary
-      const result = await uploadImage(req.file.buffer, {
-        folder: "nexus/documents",
-        public_id: `entrepreneur_${req.params.userId}_${Date.now()}`,
-        resource_type: "auto",
-      })
+      if (hasCloudinary && uploadImage) {
+        const result = await uploadImage(req.file.buffer, {
+          folder: "nexus/documents",
+          public_id: `entrepreneur_${req.params.userId}_${Date.now()}`,
+          resource_type: "auto",
+        })
+        fileUrl = result.secure_url
+      } else {
+        // Local fallback: file is already stored by multer diskStorage
+        fileUrl = req.file.filename ? `/uploads/${req.file.filename}` : ""
+      }
 
       const document = {
         name: name || req.file.originalname,
         type: type || "other",
-        url: result.secure_url,
+        url: fileUrl,
         isPublic: Boolean(isPublic),
       }
 

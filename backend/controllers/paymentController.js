@@ -38,41 +38,43 @@ exports.createDepositIntent = async (req, res, next) => {
       })
     }
 
-    if (!stripe) {
-      return res.status(503).json({
-        success: false,
-        message: "Payment service not configured. Please add STRIPE_SECRET_KEY to environment variables.",
-      })
-    }
-
     const wallet = await Wallet.getOrCreate(req.user._id)
-    const user = await User.findById(req.user._id)
+    
+    let clientSecret = "mock_client_secret_12345"
+    let stripePaymentIntentId = `mock_pi_${Date.now()}`
+    let description = `Deposit of $${amount} (Mock Simulation)`
 
-    // Create or get Stripe customer
-    let stripeCustomerId = wallet.stripeCustomerId
-    if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: user.name,
+    if (stripe) {
+      const user = await User.findById(req.user._id)
+      // Create or get Stripe customer
+      let stripeCustomerId = wallet.stripeCustomerId
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: user.name,
+          metadata: {
+            userId: user._id.toString(),
+          },
+        })
+        stripeCustomerId = customer.id
+        wallet.stripeCustomerId = stripeCustomerId
+        await wallet.save()
+      }
+
+      // Create payment intent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: "usd",
+        customer: stripeCustomerId,
         metadata: {
-          userId: user._id.toString(),
+          userId: req.user._id.toString(),
+          type: "deposit",
         },
       })
-      stripeCustomerId = customer.id
-      wallet.stripeCustomerId = stripeCustomerId
-      await wallet.save()
+      clientSecret = paymentIntent.client_secret
+      stripePaymentIntentId = paymentIntent.id
+      description = `Deposit of $${amount}`
     }
-
-    // Create payment intent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: "usd",
-      customer: stripeCustomerId,
-      metadata: {
-        userId: req.user._id.toString(),
-        type: "deposit",
-      },
-    })
 
     // Create pending transaction
     const transaction = await Transaction.create({
@@ -81,13 +83,13 @@ exports.createDepositIntent = async (req, res, next) => {
       amount,
       currency: "USD",
       status: "pending",
-      stripePaymentIntentId: paymentIntent.id,
-      description: `Deposit of $${amount}`,
+      stripePaymentIntentId,
+      description,
     })
 
     res.json({
       success: true,
-      clientSecret: paymentIntent.client_secret,
+      clientSecret,
       transactionId: transaction._id,
     })
   } catch (error) {
@@ -195,35 +197,43 @@ exports.requestWithdrawal = async (req, res, next) => {
   }
 }
 
-// Transfer funds to another user
+// Transfer funds to another user (by user ID or email)
 exports.transferFunds = async (req, res, next) => {
   try {
-    const { recipientId, amount, description } = req.body
+    const { recipientId, recipientEmail, amount, description } = req.body
 
-    if (!recipientId || !amount || amount <= 0) {
+    if ((!recipientId && !recipientEmail) || !amount || amount <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid transfer details",
+        message: "Invalid transfer details. Provide recipient email or user ID and a valid amount.",
       })
     }
 
-    if (recipientId === req.user._id.toString()) {
+    let recipient
+    if (recipientEmail) {
+      recipient = await User.findOne({ email: recipientEmail.toLowerCase().trim() })
+    } else {
+      recipient = await User.findById(recipientId)
+    }
+
+    if (!recipient) {
+      return res.status(404).json({
+        success: false,
+        message: "Recipient not found. Check the email or user ID.",
+      })
+    }
+
+    const resolvedRecipientId = recipient._id.toString()
+
+    if (resolvedRecipientId === req.user._id.toString()) {
       return res.status(400).json({
         success: false,
         message: "Cannot transfer to yourself",
       })
     }
 
-    const recipient = await User.findById(recipientId)
-    if (!recipient) {
-      return res.status(404).json({
-        success: false,
-        message: "Recipient not found",
-      })
-    }
-
     const senderWallet = await Wallet.getOrCreate(req.user._id)
-    const recipientWallet = await Wallet.getOrCreate(recipientId)
+    const recipientWallet = await Wallet.getOrCreate(resolvedRecipientId)
 
     if (senderWallet.balance < amount) {
       return res.status(400).json({
@@ -232,32 +242,30 @@ exports.transferFunds = async (req, res, next) => {
       })
     }
 
-    // Create transactions for both sender and recipient
     const senderTransaction = await Transaction.create({
       userId: req.user._id,
       type: "transfer_sent",
       amount,
       currency: "USD",
       status: "completed",
-      recipientId,
+      recipientId: resolvedRecipientId,
       recipientName: recipient.name,
       recipientEmail: recipient.email,
       description: description || `Transfer to ${recipient.name}`,
       completedAt: new Date(),
     })
 
-    const recipientTransaction = await Transaction.create({
-      userId: recipientId,
+    await Transaction.create({
+      userId: resolvedRecipientId,
       type: "transfer_received",
       amount,
       currency: "USD",
       status: "completed",
       recipientId: req.user._id,
-      description: description || `Transfer from sender`,
+      description: description || `Transfer from ${req.user.name}`,
       completedAt: new Date(),
     })
 
-    // Update wallets
     await senderWallet.transferFunds(amount)
     await recipientWallet.addFunds(amount)
 
@@ -267,6 +275,7 @@ exports.transferFunds = async (req, res, next) => {
       transaction: senderTransaction,
       wallet: {
         balance: senderWallet.balance,
+        totalTransferred: senderWallet.totalTransferred,
       },
     })
   } catch (error) {

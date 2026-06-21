@@ -1,12 +1,26 @@
 const express = require("express")
+const path = require("path")
+const fs = require("fs")
 const User = require("../models/User")
 const { requireRole, requireOwnership } = require("../middleware/auth")
 const { validateObjectId, handleValidationErrors } = require("../middleware/validation")
 const { body, query } = require("express-validator")
 const multer = require("multer")
-const { cloudinary } = require("../config/cloudinary")
 
 const router = express.Router()
+
+const hasCloudinary =
+  process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_SECRET
+
+let cloudinary
+if (hasCloudinary) {
+  cloudinary = require("../config/cloudinary").cloudinary
+}
+
+const avatarUploadDir = path.join(__dirname, "../uploads/avatars")
+if (!hasCloudinary && !fs.existsSync(avatarUploadDir)) {
+  fs.mkdirSync(avatarUploadDir, { recursive: true })
+}
 
 // Configure multer for file uploads
 const upload = multer({
@@ -220,34 +234,42 @@ router.post(
         })
       }
 
-      // Upload to Cloudinary
-      const result = await new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: "nexus/avatars",
-            public_id: `user_${req.params.id}_${Date.now()}`,
-            transformation: [
-              { width: 400, height: 400, crop: "fill", gravity: "face" },
-              { quality: "auto", fetch_format: "auto" },
-            ],
-          },
-          (error, result) => {
-            if (error) reject(error)
-            else resolve(result)
-          },
-        )
-        uploadStream.end(req.file.buffer)
-      })
+      let avatarUrl
 
-      // Update user avatar URL
-      const user = await User.findByIdAndUpdate(req.params.id, { avatarUrl: result.secure_url }, { new: true }).select(
+      if (hasCloudinary) {
+        const result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: "nexus/avatars",
+              public_id: `user_${req.params.id}_${Date.now()}`,
+              transformation: [
+                { width: 400, height: 400, crop: "fill", gravity: "face" },
+                { quality: "auto", fetch_format: "auto" },
+              ],
+            },
+            (error, result) => {
+              if (error) reject(error)
+              else resolve(result)
+            },
+          )
+          uploadStream.end(req.file.buffer)
+        })
+        avatarUrl = result.secure_url
+      } else {
+        const filename = `avatar-${req.params.id}-${Date.now()}${path.extname(req.file.originalname) || ".jpg"}`
+        const filePath = path.join(avatarUploadDir, filename)
+        fs.writeFileSync(filePath, req.file.buffer)
+        avatarUrl = `${req.protocol}://${req.get("host")}/uploads/avatars/${filename}`
+      }
+
+      const user = await User.findByIdAndUpdate(req.params.id, { avatarUrl }, { new: true }).select(
         "-refreshTokens -emailVerificationToken -passwordResetToken -passwordResetExpires",
       )
 
       res.json({
         message: "Avatar uploaded successfully",
         user,
-        avatarUrl: result.secure_url,
+        avatarUrl,
       })
     } catch (error) {
       console.error("Avatar upload error:", error)

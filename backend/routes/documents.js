@@ -1,23 +1,43 @@
 const express = require("express")
 const router = express.Router()
 const multer = require("multer")
-const { CloudinaryStorage } = require("multer-storage-cloudinary")
-const { cloudinary } = require("../config/cloudinary") // ✅ get the actual instance
+const path = require("path")
+const fs = require("fs")
 const Document = require("../models/Documents")
-const { authenticateToken, authorizeRoles } = require("../middleware/auth")
+const { authenticateToken } = require("../middleware/auth")
 
-// Cloudinary storage config for multer
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: (req, file) => {
-    const folderBase = `nexus/documents/${req.user ? req.user.userId : "public"}`
-    return {
-      folder: folderBase,
-      allowed_formats: ["pdf", "doc", "docx", "txt", "jpg", "jpeg", "png"],
-      resource_type: "auto",
-    }
-  },
-})
+let storage
+const hasCloudinary = process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_CLOUD_NAME
+
+if (hasCloudinary) {
+  const { CloudinaryStorage } = require("multer-storage-cloudinary")
+  const { cloudinary } = require("../config/cloudinary")
+  storage = new CloudinaryStorage({
+    cloudinary,
+    params: (req, file) => {
+      const folderBase = `nexus/documents/${req.user ? req.user.userId : "public"}`
+      return {
+        folder: folderBase,
+        allowed_formats: ["pdf", "doc", "docx", "txt", "jpg", "jpeg", "png"],
+        resource_type: "auto",
+      }
+    },
+  })
+} else {
+  const uploadDir = path.join(__dirname, "../uploads")
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true })
+  }
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadDir)
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9)
+      cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname))
+    },
+  })
+}
 
 const upload = multer({
   storage,
@@ -29,10 +49,11 @@ router.post("/upload", authenticateToken, upload.single("document"), async (req,
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" })
 
+    const fileUrl = req.file.filename && !hasCloudinary ? `/uploads/${req.file.filename}` : req.file.path
     const version = {
       versionNumber: 1,
       filename: req.file.originalname,
-      url: req.file.path,
+      url: fileUrl,
       publicId: req.file.filename || req.file.public_id,
       size: req.file.size || req.file.bytes || 0,
       uploadedBy: req.user.userId,
@@ -62,11 +83,12 @@ router.post("/:id/version", authenticateToken, upload.single("document"), async 
     if (!doc) return res.status(404).json({ message: "Document not found" })
 
     const newVersionNumber = doc.currentVersion + 1
+    const fileUrl = req.file.filename && !hasCloudinary ? `/uploads/${req.file.filename}` : req.file.path
 
     const version = {
       versionNumber: newVersionNumber,
       filename: req.file.originalname,
-      url: req.file.path,
+      url: fileUrl,
       publicId: req.file.filename || req.file.public_id,
       size: req.file.size || req.file.bytes || 0,
       uploadedBy: req.user.userId,
@@ -85,14 +107,22 @@ router.post("/:id/version", authenticateToken, upload.single("document"), async 
 })
 
 // Upload signature for a specific version
-const signatureStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "nexus/signatures",
-    allowed_formats: ["png", "jpg", "jpeg"],
-    resource_type: "image",
-  },
-})
+let signatureStorage
+if (hasCloudinary) {
+  const { CloudinaryStorage } = require("multer-storage-cloudinary")
+  const { cloudinary } = require("../config/cloudinary")
+  signatureStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+      folder: "nexus/signatures",
+      allowed_formats: ["png", "jpg", "jpeg"],
+      resource_type: "image",
+    },
+  })
+} else {
+  signatureStorage = storage // reuse the disk storage setup
+}
+
 const signatureUpload = multer({ storage: signatureStorage })
 
 router.post(
@@ -108,7 +138,7 @@ router.post(
       const version = doc.versions.find((v) => v.versionNumber === Number(versionNumber))
       if (!version) return res.status(404).json({ message: "Version not found" })
 
-      version.signatureUrl = req.file.path
+      version.signatureUrl = req.file.filename && !hasCloudinary ? `/uploads/${req.file.filename}` : req.file.path
       version.signaturePublicId = req.file.filename || req.file.public_id
 
       await doc.save()
@@ -149,24 +179,35 @@ router.get("/:id", authenticateToken, async (req, res) => {
   }
 })
 
-// Delete document (all versions) - also remove from Cloudinary
+// Delete document (all versions)
 router.delete("/:id", authenticateToken, async (req, res) => {
   try {
     const doc = await Document.findById(req.params.id)
     if (!doc) return res.status(404).json({ message: "Document not found" })
+    if (doc.ownerId.toString() !== req.user.userId) {
+      return res.status(403).json({ message: "Not authorized to delete this document" })
+    }
+
+    const uploadDir = path.join(__dirname, "../uploads")
 
     for (const v of doc.versions) {
       try {
-        if (v.publicId) {
+        if (hasCloudinary && v.publicId) {
+          const { cloudinary } = require("../config/cloudinary")
           await cloudinary.uploader.destroy(v.publicId, { resource_type: "auto" })
+        } else if (v.publicId && !hasCloudinary) {
+          const filePath = path.join(uploadDir, v.publicId)
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
         }
-        if (v.signaturePublicId) {
-          await cloudinary.uploader.destroy(v.signaturePublicId, {
-            resource_type: "image",
-          })
+        if (hasCloudinary && v.signaturePublicId) {
+          const { cloudinary } = require("../config/cloudinary")
+          await cloudinary.uploader.destroy(v.signaturePublicId, { resource_type: "image" })
+        } else if (v.signaturePublicId && !hasCloudinary) {
+          const sigPath = path.join(uploadDir, v.signaturePublicId)
+          if (fs.existsSync(sigPath)) fs.unlinkSync(sigPath)
         }
       } catch (err) {
-        console.warn("Cloudinary delete warning:", err)
+        console.warn("File delete warning:", err)
       }
     }
 

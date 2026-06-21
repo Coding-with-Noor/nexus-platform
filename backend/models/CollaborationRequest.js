@@ -253,30 +253,34 @@ collaborationRequestSchema.statics.checkMeetingConflict = function (userId, sche
   const query = {
     _id: { $ne: excludeRequestId },
     meetingScheduled: true,
-    $or: [{ investorId: userId }, { entrepreneurId: userId }],
-    "meetingDetails.status": { $in: ["pending", "confirmed"] },
-    $or: [
+    $and: [
+      { $or: [{ investorId: userId }, { entrepreneurId: userId }] },
+      { "meetingDetails.status": { $in: ["pending", "confirmed"] } },
       {
-        "meetingDetails.scheduledFor": {
-          $gte: startTime,
-          $lt: endTime,
-        },
-      },
-      {
-        "meetingDetails.scheduledFor": {
-          $lte: startTime,
-        },
-        $expr: {
-          $gte: [
-            {
-              $add: [
-                "$meetingDetails.scheduledFor",
-                { $multiply: ["$meetingDetails.duration", 60000] },
+        $or: [
+          {
+            "meetingDetails.scheduledFor": {
+              $gte: startTime,
+              $lt: endTime,
+            },
+          },
+          {
+            "meetingDetails.scheduledFor": {
+              $lte: startTime,
+            },
+            $expr: {
+              $gte: [
+                {
+                  $add: [
+                    "$meetingDetails.scheduledFor",
+                    { $multiply: ["$meetingDetails.duration", 60000] },
+                  ],
+                },
+                startTime,
               ],
             },
-            startTime,
-          ],
-        },
+          },
+        ],
       },
     ],
   }

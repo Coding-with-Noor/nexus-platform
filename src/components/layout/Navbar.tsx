@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Menu, X, Bell, MessageCircle, User, LogOut, Building2, CircleDollarSign } from 'lucide-react';
+import { Menu, X, Bell, MessageCircle, User, LogOut, Building2, CircleDollarSign, Settings, HelpCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext'; // Import the hook
 import { Avatar } from '../ui/Avatar';
@@ -60,6 +60,16 @@ export const Navbar: React.FC = () => {
       icon: <User size={18} />,
       text: 'Profile',
       path: profileRoute,
+    },
+    {
+      icon: <Settings size={18} />,
+      text: 'Settings',
+      path: '/settings',
+    },
+    {
+      icon: <HelpCircle size={18} />,
+      text: 'Help',
+      path: '/help',
     }
   ];
   

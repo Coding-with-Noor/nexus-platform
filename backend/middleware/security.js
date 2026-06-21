@@ -48,14 +48,13 @@ const xssProtection = (req, res, next) => {
 // Rate limiting for authentication endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs
+  max: 20, // allow 20 attempts per window
   message: {
     message: "Too many authentication attempts, please try again later",
     code: "RATE_LIMIT_EXCEEDED",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip successful requests
   skipSuccessfulRequests: true,
 })
 
@@ -86,7 +85,7 @@ const passwordResetLimiter = rateLimit({
 // General API rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === "production" ? 100 : 500,
   message: {
     message: "Too many requests, please try again later",
     code: "API_RATE_LIMIT_EXCEEDED",
@@ -134,8 +133,8 @@ const securityHeaders = (req, res, next) => {
   // Referrer policy
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin")
 
-  // Permissions policy
-  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+  // Permissions policy — allow camera/microphone for WebRTC calls
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(self), camera=(self)")
 
   next()
 }

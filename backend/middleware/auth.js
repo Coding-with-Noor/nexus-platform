@@ -42,6 +42,8 @@ const authenticateToken = async (req, res, next) => {
     }
 
     req.user = user
+    // Expose userId as string for routes that use req.user.userId
+    req.user.userId = user._id.toString()
     next()
   } catch (error) {
     console.error("JWT verification error:", {
@@ -98,8 +100,9 @@ const requireRole = (roles) => {
 const requireOwnership = (resourceUserIdField = "userId") => {
   return (req, res, next) => {
     const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField]
+    const ownerId = req.user.userId || req.user._id?.toString() || req.user.id
 
-    if (req.user.id !== resourceUserId && req.user.role !== "admin") {
+    if (ownerId !== resourceUserId && req.user.role !== "admin") {
       return res.status(403).json({
         message: "Access denied - resource ownership required",
         code: "OWNERSHIP_REQUIRED",

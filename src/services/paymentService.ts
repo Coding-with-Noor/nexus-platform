@@ -60,15 +60,16 @@ class PaymentService {
   }
 
   async transferFunds(
-    recipientId: string,
+    recipientIdOrEmail: string,
     amount: number,
     description?: string,
   ): Promise<{ transaction: Transaction; wallet: Wallet }> {
-    const response = await api.post("/payments/transfer", {
-      recipientId,
-      amount,
-      description,
-    })
+    const isEmail = recipientIdOrEmail.includes("@")
+    const payload = isEmail
+      ? { recipientEmail: recipientIdOrEmail, amount, description }
+      : { recipientId: recipientIdOrEmail, amount, description }
+
+    const response = await api.post("/payments/transfer", payload)
     return response.data
   }
 

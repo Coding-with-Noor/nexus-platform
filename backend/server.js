@@ -6,6 +6,7 @@ const helmet = require("helmet")
 const { createServer } = require("http")
 const { Server } = require("socket.io")
 const crypto = require("crypto")
+const path = require("path")
 const { encryptMessage, decryptMessage } = require("./utils/encryption")
 
 // Import routes
@@ -53,12 +54,17 @@ app.use(securityHeaders)
 // }))
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: process.env.FRONTEND_URL || "http://localhost:5173",
   credentials: true,
 }))
 
-// Rate limiting & sanitization
-app.use("/api/", apiLimiter)
+// Rate limiting & sanitization — auth routes use their own limiters
+app.use("/api/", (req, res, next) => {
+  if (req.path.startsWith("/auth")) {
+    return next()
+  }
+  return apiLimiter(req, res, next)
+})
 app.use(sanitizeInput)
 app.use(xssProtection)
 
@@ -66,12 +72,21 @@ app.use(xssProtection)
 app.use(express.json({ limit: "10mb" }))
 app.use(express.urlencoded({ extended: true, limit: "10mb" }))
 
+// Serve static uploads for local file storage fallback
+app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+app.use("/uploads/avatars", express.static(path.join(__dirname, "uploads/avatars")))
+
+const { seedDemoUsers } = require("./utils/seed")
+
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log("✅ Connected to MongoDB"))
+.then(() => {
+  console.log("✅ Connected to MongoDB")
+  seedDemoUsers()
+})
 .catch((err) => console.error("❌ MongoDB connection error:", err))
 
 // Encryption key (use environment variable only)
@@ -101,6 +116,13 @@ app.get("/api/health", (req, res) => {
     environment: process.env.NODE_ENV || "development",
   })
 })
+
+// API documentation (Swagger UI)
+const swaggerUi = require("swagger-ui-express")
+const swaggerDocument = require("./swagger.json")
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customSiteTitle: "Nexus Platform API Docs",
+}))
 
 // Error handling
 app.use(errorHandler)

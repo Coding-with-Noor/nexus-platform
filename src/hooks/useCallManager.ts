@@ -51,8 +51,13 @@ export const useCallManager = () => {
 
         if (response.ok) {
           const callerData = await response.json()
+          const rawUser = callerData.user || callerData.data
+          const caller: User = {
+            ...rawUser,
+            id: rawUser._id?.toString() || rawUser.id,
+          }
           setIncomingCall({
-            caller: callerData.data,
+            caller,
             roomId,
             callType,
           })

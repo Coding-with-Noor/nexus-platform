@@ -18,11 +18,11 @@ spec:
         ports:
         - containerPort: 5000
         env:
-        - name: MONGO_URI
+        - name: MONGODB_URI
           valueFrom:
             secretKeyRef:
               name: mongo-secret
-              key: MONGO_URI
+              key: MONGODB_URI
 ---
 apiVersion: v1
 kind: Service

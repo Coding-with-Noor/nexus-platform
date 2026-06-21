@@ -129,6 +129,7 @@ export interface Document {
 export interface AuthContextType {
   user: User | null
   login: (email: string, password: string, role: UserRole) => Promise<void>
+  completeLogin: (user: User, token: string, refreshToken: string) => Promise<void>
   register: (name: string, email: string, password: string, role: UserRole) => Promise<void>
   logout: () => void
   forgotPassword: (email: string) => Promise<void>

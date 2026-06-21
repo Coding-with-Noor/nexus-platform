@@ -31,8 +31,9 @@ export interface BaseUser {
 }
 
 function normalizeUser(u: any): BaseUser {
+  const id = u._id?.toString?.() || u.id?.toString?.() || u.id
   return {
-    id: u._id || u.id,
+    id,
     name: u.name,
     email: u.email,
     role: u.role,

@@ -1,0 +1,241 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Nexus Platform API",
+    "description": "Investor & Entrepreneur Collaboration Platform — REST API documentation",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://localhost:5000/api", "description": "Local development" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health check",
+        "security": [],
+        "responses": { "200": { "description": "Server is healthy" } }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Register a new user",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email", "password", "confirmPassword", "role"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "confirmPassword": { "type": "string" },
+                  "role": { "type": "string", "enum": ["entrepreneur", "investor"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "User registered" } }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login (returns OTP step if 2FA enabled)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password", "role"],
+                "properties": {
+                  "email": { "type": "string" },
+                  "password": { "type": "string" },
+                  "role": { "type": "string", "enum": ["entrepreneur", "investor"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Login successful or OTP required" } }
+      }
+    },
+    "/auth/verify-otp": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Verify 2FA OTP",
+        "security": [],
+        "responses": { "200": { "description": "OTP verified, tokens returned" } }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Refresh access token",
+        "security": [],
+        "responses": { "200": { "description": "New access token" } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Get current user",
+        "responses": { "200": { "description": "Current user profile" } }
+      }
+    },
+    "/auth/enable-2fa": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Enable email OTP 2FA",
+        "responses": { "200": { "description": "2FA enabled" } }
+      }
+    },
+    "/auth/disable-2fa": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Disable 2FA",
+        "responses": { "200": { "description": "2FA disabled" } }
+      }
+    },
+    "/profiles/entrepreneur/{userId}": {
+      "get": {
+        "tags": ["Profiles"],
+        "summary": "Get entrepreneur profile",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Entrepreneur profile" } }
+      },
+      "put": {
+        "tags": ["Profiles"],
+        "summary": "Update entrepreneur profile",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Profile updated" } }
+      }
+    },
+    "/profiles/investor/{userId}": {
+      "get": {
+        "tags": ["Profiles"],
+        "summary": "Get investor profile",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Investor profile" } }
+      }
+    },
+    "/collaborations/request": {
+      "post": {
+        "tags": ["Collaborations"],
+        "summary": "Send collaboration request",
+        "responses": { "201": { "description": "Request created" } }
+      }
+    },
+    "/collaborations/requests/{requestId}/schedule-meeting": {
+      "post": {
+        "tags": ["Meetings"],
+        "summary": "Schedule a meeting on a collaboration request",
+        "parameters": [{ "name": "requestId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Meeting scheduled" } }
+      }
+    },
+    "/collaborations/check-conflict": {
+      "post": {
+        "tags": ["Meetings"],
+        "summary": "Check for meeting time conflicts",
+        "responses": { "200": { "description": "Conflict check result" } }
+      }
+    },
+    "/documents/upload": {
+      "post": {
+        "tags": ["Documents"],
+        "summary": "Upload a document",
+        "responses": { "201": { "description": "Document uploaded" } }
+      }
+    },
+    "/documents/{id}/version/{versionNumber}/signature": {
+      "post": {
+        "tags": ["Documents"],
+        "summary": "Attach e-signature to document version",
+        "responses": { "200": { "description": "Signature attached" } }
+      }
+    },
+    "/payments/wallet": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Get wallet balance",
+        "responses": { "200": { "description": "Wallet details" } }
+      }
+    },
+    "/payments/deposit/intent": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Create deposit payment intent (Stripe or mock)",
+        "responses": { "200": { "description": "Payment intent created" } }
+      }
+    },
+    "/payments/transfer": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Transfer funds to another user",
+        "responses": { "200": { "description": "Transfer completed" } }
+      }
+    },
+    "/payments/transactions": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Get transaction history",
+        "responses": { "200": { "description": "Transaction list" } }
+      }
+    },
+    "/messages/conversations": {
+      "get": {
+        "tags": ["Messages"],
+        "summary": "List conversations",
+        "responses": { "200": { "description": "Conversation list" } }
+      }
+    },
+    "/messages/send": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Send encrypted message",
+        "responses": { "201": { "description": "Message sent" } }
+      }
+    },
+    "/deals": {
+      "get": {
+        "tags": ["Deals"],
+        "summary": "List deals",
+        "responses": { "200": { "description": "Deal list" } }
+      },
+      "post": {
+        "tags": ["Deals"],
+        "summary": "Create a deal",
+        "responses": { "201": { "description": "Deal created" } }
+      }
+    }
+  },
+  "tags": [
+    { "name": "System" },
+    { "name": "Authentication" },
+    { "name": "Profiles" },
+    { "name": "Collaborations" },
+    { "name": "Meetings" },
+    { "name": "Documents" },
+    { "name": "Payments" },
+    { "name": "Messages" },
+    { "name": "Deals" }
+  ]
+}
